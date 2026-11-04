@@ -1,0 +1,87 @@
+{
+  "name": "remove.free",
+  "version": "2.0.0",
+  "description": "Ultra-fast, 100% private on-device background remover for humans and autonomous AI agents.",
+  "privacy": "100% Client-Side Neural Execution. Zero server uploads. Zero data retention.",
+  "protocols": {
+    "url_automation": {
+      "description": "Direct in-browser execution with WebGPU hardware acceleration, WASM fallback. No server-side component: the image is fetched by the browser itself.",
+      "endpoint": "/?src=<image_url>&bg=<color>&model=<model_id>",
+      "parameters": {
+        "src": "Public URL of image to process (auto-triggers cutout pipeline). Fetched cross-origin by the browser, so the host MUST send permissive CORS headers (Access-Control-Allow-Origin). Hosts without CORS cannot be read; use the file picker or clipboard paste for those.",
+        "bg": "Background: 'transparent', 'white', 'black', or custom hex (e.g. '#3b82f6')",
+        "model": "Optional model id. One of: birefnet-lite, rmbg-1.4. Defaults to birefnet-lite."
+      },
+      "dom_contract": {
+        "canvas": "canvas#cv (rendered high-resolution cutout canvas)",
+        "status": "#status (reads 'WxH \u00b7 Ns' upon completion, or starts with 'failed')",
+        "download_button": "#dl (triggers direct download)",
+        "extract_png_js": "document.querySelector('#cv').toDataURL('image/png')"
+      },
+      "constraints": {
+        "cors_required": true,
+        "reason": "There is no server-side proxy. Nothing in this app is metered or rate-limited.",
+        "alternatives": [
+          "Use an image host that sends Access-Control-Allow-Origin (most image CDNs do).",
+          "Paste an image from the clipboard (Cmd/Ctrl+V).",
+          "Select a local file via the file picker."
+        ]
+      }
+    }
+  },
+  "models": [
+    {
+      "id": "birefnet-lite",
+      "label": "BiRefNet Lite",
+      "default": true,
+      "upstream": "onnx-community/BiRefNet_lite-ONNX",
+      "license": "MIT",
+      "attribution": "BiRefNet by Peng Zheng et al., ONNX conversion by onnx-community. MIT licensed.",
+      "backends": {
+        "webgpu": {
+          "dtype": "fp16",
+          "download_bytes": 114556928
+        },
+        "wasm": {
+          "dtype": "fp32",
+          "download_bytes": 223985664
+        }
+      },
+      "notes": "Best edge quality on hair and fur. No int8 export exists upstream, so CPU mode is a large download and slow."
+    },
+    {
+      "id": "rmbg-1.4",
+      "label": "RMBG 1.4",
+      "default": false,
+      "upstream": "briaai/RMBG-1.4",
+      "license": "CC-BY-NC-4.0",
+      "attribution": "RMBG v1.4 by BRIA AI, used under CC BY-NC 4.0. Non-commercial use only.",
+      "backends": {
+        "webgpu": {
+          "dtype": "fp16",
+          "download_bytes": 88186880
+        },
+        "wasm": {
+          "dtype": "q8",
+          "download_bytes": 44355584
+        }
+      },
+      "notes": "Smallest and fastest on both backends. Non-commercial use only."
+    }
+  ],
+  "runtime": {
+    "backend_selection": "WebGPU when navigator.gpu is present, otherwise WASM. Every model runs on both.",
+    "weights_hosting": "Fetched by the browser directly from object storage. Weights never transit an application server.",
+    "model_cache": "Cached in the browser after first load; works offline thereafter.",
+    "server_side_code": "None. Fully static; every request is a static asset."
+  },
+  "samples": {
+    "description": "Bundled sample images, same-origin static assets.",
+    "paths": [
+      "/samples/portrait.jpg",
+      "/samples/sneakers.jpg",
+      "/samples/retriever.jpg",
+      "/samples/car.jpg"
+    ]
+  }
+}

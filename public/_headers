@@ -1,0 +1,43 @@
+# Static asset headers. Requests served from here are free and unlimited on the
+# Cloudflare free plan — they never invoke a Worker.
+
+# Agent manifest: publicly readable by automated clients.
+/api/agent.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+  Cache-Control: public, max-age=3600
+
+# Content-hashed build output is immutable.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The service worker must always be revalidated. If a broken version is cached
+# with a long TTL, clients keep serving it and there is no way to recover.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+  Service-Worker-Allowed: /
+
+/site.webmanifest
+  Cache-Control: public, max-age=3600
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Deliberately NOT set here: Cross-Origin-Opener-Policy and
+# Cross-Origin-Embedder-Policy. They would unlock SharedArrayBuffer and thus
+# multi-threaded WASM inference, but `require-corp` also blocks every
+# cross-origin subresource that lacks CORS or CORP headers — including the model
+# weights, which are fetched from Hugging Face by default. Enable both only
+# after the weights are served from a bucket you control with CORS/CORP set, and
+# verify CPU-mode inference still loads afterwards.
+#
+# What that costs today, measured with the WASM provider forced on a 10-core
+# machine (car.jpg, 800x533, warm session, crossOriginIsolated false):
+#
+#   MODNet    3.84 s
+#   RMBG     22.47 s
+#
+# Single-threaded, with nine cores idle. That is the price of keeping weights on
+# someone else's CDN, and it is why the CPU default is the cheapest model rather
+# than the most accurate one.

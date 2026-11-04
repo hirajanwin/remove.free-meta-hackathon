@@ -1,0 +1,4 @@
+# SPA fallback: every client-side route resolves to index.html as a static asset.
+# There are no Functions, so this applies to every request that is not an
+# existing file, and existing assets are matched before it.
+/*  /index.html  200

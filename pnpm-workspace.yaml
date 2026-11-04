@@ -1,0 +1,8 @@
+allowBuilds:
+  esbuild: set this to true or false
+# esbuild arrives transitively with vitest and wants a postinstall to fetch its
+# platform binary. pnpm 11 blocks build scripts by default and *errors* on an
+# unapproved one before every build, which is where this setting now lives —
+# the package.json "pnpm" field is no longer read.
+onlyBuiltDependencies:
+  - esbuild

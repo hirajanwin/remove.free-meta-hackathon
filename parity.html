@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wormhole shader parity</title>
+    <style>
+      body { font: 12px ui-monospace, monospace; background: #0a0a0b; color: #e5e5e5; padding: 16px; }
+      .fail { color: #ef6c6c; }
+      .pass { color: #6df4ce; }
+    </style>
+  </head>
+  <body>
+    <p>Running the wormhole's vertex shader on this GPU and comparing against the JS twin…</p>
+    <pre id="out"></pre>
+
+    <!--
+      The parity harness.
+
+      It lives at the project ROOT rather than in public/, and that is not a
+      preference. Vite serves public/ byte-for-byte with no transformation, so
+      a module script there cannot resolve `three` or import a `.ts` file — the
+      page loaded and died on "Failed to resolve module specifier". At the root
+      it is a Vite HTML entry and gets the full pipeline.
+
+      It evaluates the REAL vertex shader — imported from the same module the
+      wormhole renders with, not a copy — over a grid of (slot, u, v) samples,
+      writes the resulting positions into a float render target, reads them
+      back, and compares against `expectedPosition` in JS.
+
+      Doing it in a fragment shader rather than by rendering the actual mesh
+      and reading transform feedback is what makes the comparison exact: there
+      is no rasterisation, no interpolation and no projection in between, so a
+      mismatch is a mismatch in the geometry rather than in how it was drawn.
+    -->
+    <script type="module">
+      import * as THREE from "three"
+      import { geometryChunk } from "/src/lib/wormhole/shader.ts"
+      import { LAYOUT } from "/src/lib/wormhole/presets.ts"
+      import {
+        parityCases,
+        parityPoints,
+        expectedPosition,
+        PARITY_EPSILON,
+      } from "/src/lib/wormhole/parity.ts"
+
+      const out = document.getElementById("out")
+      const results = []
+
+      try {
+        const renderer = new THREE.WebGLRenderer({ antialias: false })
+        renderer.setSize(1, 1)
+        const gl = renderer.getContext()
+        if (!gl.getExtension("EXT_color_buffer_float")) {
+          throw new Error("no EXT_color_buffer_float — positions cannot be read back exactly")
+        }
+
+        // GLSL ES has no implicit int-to-float conversion, so every number
+        // interpolated into the source has to carry a decimal point — `6`
+        // is an int literal and `plWormholePosition` takes floats. Template
+        // interpolation of a JS number gives "6", and the shader refused to
+        // compile until this existed.
+        const f = (n) => n.toFixed(6)
+
+        const points = parityPoints()
+        const scene = new THREE.Scene()
+        const camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1)
+        const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2))
+        scene.add(quad)
+
+        for (const c of parityCases) {
+          const samples = []
+          for (let slot = 0; slot < c.instanceCount; slot++) {
+            for (const p of points) samples.push({ slot, u: p.u, v: p.v })
+          }
+
+          const width = samples.length
+          const total = c.instanceCount * LAYOUT.spiralStep
+          const startY = -(total / 2)
+
+          // One texel per sample. NearestFilter and a half-texel lookup mean
+          // nothing is interpolated — each fragment reads its own inputs back
+          // exactly as written.
+          const data = new Float32Array(width * 4)
+          for (let i = 0; i < samples.length; i++) {
+            const s = samples[i]
+            data[i * 4] = s.slot * ((Math.PI * 2) / LAYOUT.imagesPerTurn)
+            data[i * 4 + 1] = startY + s.slot * LAYOUT.spiralStep
+            data[i * 4 + 2] = s.u
+            data[i * 4 + 3] = s.v
+          }
+          const inputs = new THREE.DataTexture(data, width, 1, THREE.RGBAFormat, THREE.FloatType)
+          inputs.minFilter = THREE.NearestFilter
+          inputs.magFilter = THREE.NearestFilter
+          inputs.needsUpdate = true
+
+          const target = new THREE.WebGLRenderTarget(width, 1, {
+            type: THREE.FloatType,
+            format: THREE.RGBAFormat,
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
+          })
+
+          quad.material = new THREE.ShaderMaterial({
+            uniforms: {
+              uInputs: { value: inputs },
+              uCount: { value: width },
+            },
+            vertexShader: `
+              varying vec2 vScreen;
+              void main() {
+                vScreen = uv;
+                gl_Position = vec4(position.xy, 0.0, 1.0);
+              }
+            `,
+            fragmentShader: `
+              precision highp float;
+              uniform sampler2D uInputs;
+              uniform float uCount;
+              varying vec2 vScreen;
+
+              ${geometryChunk}
+
+              void main() {
+                float i = floor(vScreen.x * uCount);
+                vec4 inp = texture2D(uInputs, vec2((i + 0.5) / uCount, 0.5));
+                vec3 scaled = vec3(
+                  inp.z * ${f(LAYOUT.planeWidth * c.scale)},
+                  inp.w * ${f(LAYOUT.planeHeight * c.scale)},
+                  0.0
+                );
+                float depthFade;
+                float worldY;
+                vec3 p = plWormholePosition(
+                  scaled, inp.x, inp.y,
+                  ${f(LAYOUT.radius)}, ${f(c.scrollOffset)}, ${f(total)},
+                  ${f(LAYOUT.curvature)}, ${f(c.rotation)},
+                  ${f(c.squeezeAmount)}, ${f(c.squeezeWidth)},
+                  0, depthFade, worldY
+                );
+                gl_FragColor = vec4(p, 1.0);
+              }
+            `,
+          })
+
+          renderer.setRenderTarget(target)
+          renderer.render(scene, camera)
+          const read = new Float32Array(width * 4)
+          renderer.readRenderTargetPixels(target, 0, 0, width, 1, read)
+          renderer.setRenderTarget(null)
+
+          let maxError = 0
+          let worst = ""
+          for (let i = 0; i < samples.length; i++) {
+            const s = samples[i]
+            const want = expectedPosition(c, s.slot, s.u, s.v)
+            const err = Math.hypot(
+              read[i * 4] - want.x,
+              read[i * 4 + 1] - want.y,
+              read[i * 4 + 2] - want.z
+            )
+            if (err > maxError) {
+              maxError = err
+              worst = `slot ${s.slot} uv ${s.u.toFixed(2)},${s.v.toFixed(2)}`
+            }
+          }
+
+          // Diagnostics: is the failure uniform (a systematic difference in
+          // the maths) or spiky (a few samples reading the wrong texel)?
+          const errs = []
+          for (let i = 0; i < samples.length; i++) {
+            const s = samples[i]
+            const want = expectedPosition(c, s.slot, s.u, s.v)
+            errs.push(
+              Math.hypot(read[i * 4] - want.x, read[i * 4 + 1] - want.y, read[i * 4 + 2] - want.z)
+            )
+          }
+          errs.sort((a, b) => a - b)
+          const median = errs[Math.floor(errs.length / 2)]
+          const over = errs.filter((e) => e > PARITY_EPSILON).length
+
+          results.push({
+            name: c.name,
+            maxError,
+            worst,
+            median,
+            over,
+            samples: samples.length,
+            pass: maxError <= PARITY_EPSILON,
+          })
+          target.dispose()
+          quad.material.dispose()
+        }
+
+        out.innerHTML = results
+          .map(
+            (r) =>
+              `<span class="${r.pass ? "pass" : "fail"}">${r.pass ? "\u2713" : "\u2717"} ${r.name} \u2014 max error ${r.maxError.toExponential(2)}${r.pass ? "" : ` at ${r.worst}`}</span>`
+          )
+          .join("\n")
+        window.__PARITY__ = { results }
+      } catch (err) {
+        out.textContent = `harness error: ${err?.message || err}`
+        window.__PARITY__ = { error: String(err?.message || err), results }
+      }
+    </script>
+  </body>
+</html>

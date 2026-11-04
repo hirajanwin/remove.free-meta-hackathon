@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Theme, before first paint.
+         Inline and synchronous on purpose: anything that runs after the bundle
+         loads paints the wrong theme first and then corrects it, which is the
+         flash every dark-mode implementation is judged on. `class="dark"` used
+         to be hardcoded on this element, so a stored light preference was
+         overridden on every reload and a light-mode OS was never consulted.
+         Kept in sync with src/lib/theme.ts — deliberately duplicated rather
+         than imported, because an import cannot be synchronous here. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia &&
+                  window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+
+    <!-- Static metadata lives here rather than in a route's head() so that it is
+         present in the served HTML. This file IS the deployed page: it is a
+         static asset, so serving it is free and unlimited on Cloudflare's free
+         plan, and no Worker runs to produce it. -->
+    <title>remove.free — 100% Private On-Device AI Background Remover</title>
+    <meta
+      name="description"
+      content="Remove image backgrounds instantly in your browser with studio-grade neural AI. 100% private, zero server uploads, unlimited free cutouts forever."
+    />
+    <meta property="og:title" content="remove.free — 100% Private AI Background Remover" />
+    <meta
+      property="og:description"
+      content="Free, private on-device background remover powered by client-side neural acceleration."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      rel="preload"
+      href="/fonts/geist-variable.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <!-- Model weights are large and fetched by the browser directly from object
+         storage. Warming the connection early shaves setup off the first load. -->
+    <link rel="preconnect" href="https://huggingface.co" crossorigin />
+  </head>
+  <body
+    class="h-svh w-screen overflow-hidden bg-background font-sans antialiased selection:bg-blue-500/20 selection:text-blue-400"
+  >
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
