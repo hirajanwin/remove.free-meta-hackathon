@@ -2,7 +2,7 @@
 
 **Type what to keep. It cuts it out — privately, on your own GPU.**
 
-[**Live demo**](https://remove.free) · [**Demo video**](https://youtu.be/HxcWxMdLOsw) · **Meta Global AI Developer Hackathon 2026**
+[**Live demo**](https://remove.free) · [**Demo video**](https://youtu.be/PqVlrBEzU6s) · **Meta Global AI Developer Hackathon 2026**
 Track: Indie Developer · Theme: Build for Your World
 
 ---
